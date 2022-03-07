@@ -16,14 +16,39 @@ DEFINES += QT_DEPRECATED_WARNINGS
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 SOURCES += \
+    BaseHandler.cpp \
+    BaseMessage.cpp \
+    ByteBuffer.cpp \
+    CameraHandler.cpp \
+    CameraMessage.cpp \
+    FrameMessage.cpp \
+    HandleFactory.cpp \
+    ManagerController.cpp \
+    MessageFactory.cpp \
+    config.cpp \
+    configlib.cpp \
     imagesettings.cpp \
     main.cpp \
     camera.cpp \
+    transporter.cpp \
     videosettings.cpp
 
 HEADERS += \
+    BaseHandler.h \
+    BaseMessage.h \
+    ByteBuffer.h \
+    CameraHandler.h \
+    CameraMessage.h \
+    FrameMessage.h \
+    HandleFactory.h \
+    ManagerController.h \
+    MessageFactory.h \
     camera.h \
+    config.h \
+    configlib.h \
+    constant.h \
     imagesettings.h \
+    transporter.h \
     videosettings.h
 
 FORMS += \

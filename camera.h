@@ -57,6 +57,7 @@
 #include <QScopedPointer>
 
 #include <QMainWindow>
+#include "constant.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class Camera; }
@@ -109,6 +110,10 @@ private slots:
     void readyForCapture(bool ready);
     void imageSaved(int id, const QString &fileName);
 
+    void onSigCamera(int camera_type);
+    void sendFrame();
+    void sendImage();
+
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void keyReleaseEvent(QKeyEvent *event) override;
@@ -127,6 +132,11 @@ private:
     QString m_videoContainerFormat;
     bool m_isCapturingImage = false;
     bool m_applicationExiting = false;
+
+    QImage currentImage;
+    QTimer *videoStreamingTimer;
+    QTimer *imageStreamingTimer;
+    QByteArray getCompressedCurrentImage();
 };
 
 #endif

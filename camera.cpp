@@ -49,6 +49,9 @@
 ****************************************************************************/
 
 #include "camera.h"
+
+#include "ManagerController.h"
+
 #include "ui_camera.h"
 #include "videosettings.h"
 #include "imagesettings.h"
@@ -63,6 +66,14 @@
 #include <QPalette>
 
 #include <QtWidgets>
+
+#include "config.h"
+#include "transporter.h"
+#include "BaseMessage.h"
+#include "FrameMessage.h"
+#include "constant.h"
+
+#include <QUdpSocket>
 
 Q_DECLARE_METATYPE(QCameraInfo)
 
@@ -89,6 +100,11 @@ Camera::Camera() : ui(new Ui::Camera)
     connect(ui->captureWidget, &QTabWidget::currentChanged, this, &Camera::updateCaptureMode);
 
     setCamera(QCameraInfo::defaultCamera());
+
+    ManagerController::getInstance()->initSocket(Config::Instance()->UdpSendPort, Config::Instance()->UdpReceivePort, (Config::Instance()->ManagerAddress).toStdString());
+    connect(Transporter::getInstance(), &Transporter::sigCamera, this, &Camera::onSigCamera);
+    videoStreamingTimer = new QTimer(this);
+    imageStreamingTimer = new QTimer(this);
 }
 
 void Camera::setCamera(const QCameraInfo &cameraInfo)
@@ -128,7 +144,7 @@ void Camera::setCamera(const QCameraInfo &cameraInfo)
 
     ui->captureWidget->setTabEnabled(0, (m_camera->isCaptureModeSupported(QCamera::CaptureStillImage)));
     ui->captureWidget->setTabEnabled(1, (m_camera->isCaptureModeSupported(QCamera::CaptureVideo)));
-
+    m_imageCapture->setCaptureDestination(QCameraImageCapture::CaptureToBuffer);
     updateCaptureMode();
     m_camera->start();
 }
@@ -182,16 +198,17 @@ void Camera::updateRecordTime()
 
 void Camera::processCapturedImage(int requestId, const QImage& img)
 {
-    Q_UNUSED(requestId);
-    QImage scaledImage = img.scaled(ui->viewfinder->size(),
-                                    Qt::KeepAspectRatio,
-                                    Qt::SmoothTransformation);
+//    Q_UNUSED(requestId);
+//    QImage scaledImage = img.scaled(ui->viewfinder->size(),
+//                                    Qt::KeepAspectRatio,
+//                                    Qt::SmoothTransformation);
 
-    ui->lastImagePreviewLabel->setPixmap(QPixmap::fromImage(scaledImage));
+//    ui->lastImagePreviewLabel->setPixmap(QPixmap::fromImage(scaledImage));
 
-    // Display captured image for 4 seconds.
-    displayCapturedImage();
-    QTimer::singleShot(4000, this, &Camera::displayViewfinder);
+//    // Display captured image for 4 seconds.
+//    displayCapturedImage();
+//    //QTimer::singleShot(4000, this, &Camera::displayViewfinder);
+    currentImage = img;
 }
 
 void Camera::configureCaptureSettings()
@@ -409,7 +426,7 @@ void Camera::displayCapturedImage()
 
 void Camera::readyForCapture(bool ready)
 {
-    ui->takeImageButton->setEnabled(ready);
+//    ui->takeImageButton->setEnabled(ready);
 }
 
 void Camera::imageSaved(int id, const QString &fileName)
@@ -422,6 +439,51 @@ void Camera::imageSaved(int id, const QString &fileName)
         close();
 }
 
+void Camera::onSigCamera(int camera_type)
+{
+    switch (camera_type)
+    {
+    case CAMERA_TYPE::CAMERA_STOP:
+        {
+            m_camera->stop();
+            imageStreamingTimer->stop();
+            videoStreamingTimer->stop();
+            break;
+        }
+    case CAMERA_TYPE::CAMERA_IMAGE:
+        {
+            if (m_camera->state() != QCamera::ActiveState)
+                m_camera->start();
+            connect(imageStreamingTimer, &QTimer::timeout, this, &Camera::sendImage);
+            imageStreamingTimer->start(Config::Instance()->ImageTimer);
+            break;
+        }
+    case CAMERA_TYPE::CAMERA_VIDEO:
+        {
+            if (m_camera->state() != QCamera::ActiveState)
+                m_camera->start();
+            connect(videoStreamingTimer, &QTimer::timeout, this, &Camera::sendFrame);
+            videoStreamingTimer->start(Config::Instance()->VideoTimer);
+            break;
+        }
+    }
+}
+
+void Camera::sendFrame()
+{    
+    QByteArray compressedCurrentImage = getCompressedCurrentImage();
+    FrameMessage *frameMessage = new FrameMessage(compressedCurrentImage.size());
+    frameMessage->setData(compressedCurrentImage.data());
+    ManagerController::getInstance()->sendMessage(frameMessage);
+}
+
+void Camera::sendImage()
+{
+    QByteArray compressedCurrentImage = getCompressedCurrentImage();
+    QUdpSocket *socket = new QUdpSocket();
+    socket->writeDatagram(compressedCurrentImage.data(), compressedCurrentImage.size(), QHostAddress(Config::Instance()->ManagerAddress), Config::Instance()->PythonSendPort);
+}
+
 void Camera::closeEvent(QCloseEvent *event)
 {
     if (m_isCapturingImage) {
@@ -431,4 +493,17 @@ void Camera::closeEvent(QCloseEvent *event)
     } else {
         event->accept();
     }
+}
+
+QByteArray Camera::getCompressedCurrentImage()
+{
+    if (m_imageCapture->isReadyForCapture())
+        m_imageCapture.data()->capture(); //to update current image
+    QByteArray qByteArray;
+    QBuffer qBuffer(&qByteArray);
+    currentImage.save(&qBuffer, "JPEG");
+
+    QByteArray compressByte = qCompress(qByteArray, 1);
+    QByteArray base64Byte = compressByte.toBase64();
+    return base64Byte;
 }
